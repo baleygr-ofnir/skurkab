@@ -211,3 +211,93 @@ permissions:
     tenant-id: ${{ secrets.AZURE_TENANT_ID }}
     subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 ```
+
+---
+
+## Entra ID & RBAC Limitations (School Account Policy)
+
+### 1. Encountered Blockers
+
+Due to strict administrator policies on the provided school Azure account, access to **Microsoft Entra ID** is entirely restricted. Navigating to the Entra ID overview yields a `401 Insufficient privileges` error (see attached `image_7163c2.png`).
+
+Because of this tenant-level restriction, the following mandatory steps could not be executed:
+
+* Creating the four required Entra ID test users (Praktikant, Mellanchef, Konsultchef, Admin).
+* Creating an App Registration and Service Principal for the API.
+* Defining and assigning Custom App Roles.
+* Configuring App Service Authentication (Easy Auth) to validate tokens against the tenant.
+
+### 2. Proposed Implementation (How it would have been done)
+
+If the account had the necessary permissions (e.g., Global Administrator or Privileged Role Administrator), the identity and access management would have been provisioned using the following Azure CLI sequence.
+
+**Creating Users and Assigning Azure RBAC (Reader):**
+
+```bash
+DOMAIN="yourname.onmicrosoft.com"
+RG_NAME="SkurkAB-RG"
+
+# Create User
+PRAKTIKANT_ID=$(az ad user create \
+    --display-name "Praktikant" \
+    --password "StrongPass123!" \
+    --user-principal-name "praktikant@$DOMAIN" \
+    --query id -o tsv)
+
+# Assign Azure RBAC Reader role to the Resource Group
+az role assignment create \
+    --assignee $PRAKTIKANT_ID \
+    --role "Reader" \
+    --resource-group $RG_NAME
+
+```
+
+*(This process would be repeated for the remaining three roles).*
+
+**Provisioning App Registration and App Roles:**
+
+```bash
+# Create App Registration and Service Principal
+APP_ID=$(az ad app create --display-name "SkurkAB-App" --query appId -o tsv)
+OBJ_ID=$(az ad app show --id $APP_ID --query id -o tsv)
+SP_ID=$(az ad sp create --id $APP_ID --query id -o tsv)
+
+# Apply App Roles via JSON manifest
+az ad app update --id $OBJ_ID --app-roles @app-roles.json
+
+```
+
+**Assigning App Roles to Users and Enabling Easy Auth:**
+
+```bash
+# Example: Assigning 'Praktikant' role (requires Graph API)
+ROLE_ID="11111111-1111-1111-1111-111111111111"
+az rest --method post \
+    --url "https://graph.microsoft.com/v1.0/servicePrincipals/$SP_ID/appRoleAssignedTo" \
+    --body "{\"principalId\": \"$PRAKTIKANT_ID\", \"resourceId\": \"$SP_ID\", \"appRoleId\": \"$ROLE_ID\"}"
+
+# Enable Easy Auth on the App Service
+TENANT_ID=$(az account show --query tenantId -o tsv)
+az webapp auth update --resource-group $RG_NAME --name $APP_NAME --enabled true --action Return401
+az webapp auth microsoft update --resource-group $RG_NAME --name $APP_NAME --client-id $APP_ID --tenant-id $TENANT_ID
+
+```
+
+### 3. Relevance to Security Architecture
+
+The inability to configure Entra ID directly impacts the implementation of **Zero Trust**.
+
+Without these configurations, the API relies solely on network-level security (VNet/NSG). While the NSG successfully blocks unauthorized HTTP traffic and isolates the data subnet, it cannot inspect or verify the identity of the user making an HTTPS request.
+
+Proper identity configuration separates **Authentication** (Easy Auth verifying *who* the user is) from **Authorization** (App Roles determining *what* they are allowed to do with the data). Because these layers are missing, the endpoint restrictions (e.g., preventing a 'Praktikant' from executing a `DELETE` request) cannot be enforced or tested via OAuth tokens in Postman.
+
+---
+## Screenshots
+
+![API Networking](screenshots/api-networking.png)
+
+![NSG Rules](screenshots/nsg-rules.png)
+
+![Resources](screenshots/resources.png)
+
+![Subnets](screenshots/subnets.png)
