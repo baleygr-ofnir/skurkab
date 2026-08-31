@@ -137,13 +137,21 @@ Normal               True                     False                         Fals
 
 ## 9. Deploy with GitHub Actions
 
+### Create distribution identity and assign role to app service
 ```bash
-$ az webapp deployment github-actions add \
-    --repo baleygr-ofnir/skurkab \
-    --resource-group skurkab-rg \
-    --name skurkab-2006-api \
-    --branch main \
-    --login-with-github
+sub_id=$(az account show --query id -o tsv)
+tenant_id=$(az account show --query tenantId -o tsv)
+
+deploy_app_id=$(az ad app create --display-name "GitHubActions-Deploy" --query appId -o tsv)
+deploy_obj_id=$(az ad app show --id $deploy_app_id --query id -o tsv)
+deploy_sp_id=$(az ad sp create --id $deploy_app_id --query id -o tsv)
+
+az role assignment create \
+    --assignee-object-id $deploy_sp_id \
+    --assignee-principal-type ServicePrincipal \
+    --role Contributor \
+    --scope /subscriptions/$sub_id/resourceGroups/skurkab-rg
+
 ```
 
 ```text
@@ -156,4 +164,26 @@ Fetching publish profile with secrets for the app 'skurkab-2006-api'
 Result
 ------------------------------------------------
 https://github.com/baleygr-ofnir/skurkab/actions
+```
+
+### Create federated credential for GitHub Actions
+```bash 
+cat<<EOF > credentials.json
+{
+  "name": "GitHub-OIDC-Main",
+  "issuer": "https://token.actions.githubusercontent.com",
+  "subject": "repo:baleygr-ofnir/skurkab:ref:refs/heads/main",
+  "audiences": ["api://AzureADTokenExchange"],
+}
+
+az ad app federated-credential create \
+    --id $deploy_obj_id \
+    --parameters @credentials.json
+```
+
+```text
+az ad app federated-credential create --id $deploy_obj_id --parameters @credentials.json              
+@odata.context                                                                                                                        Issuer                                       Name              Subject
+------------------------------------------------------------------------------------------------------------------------------------  -------------------------------------------  ----------------  ----------------------------------------------
+https://graph.microsoft.com/v1.0/$metadata#applications('000000000-0000-0000-0000-000000000000')/federatedIdentityCredentials/$entity  https://token.actions.githubusercontent.com  GitHub-OIDC-Main  repo:baleygr-ofnir/skurkab:ref:refs/heads/main
 ```
