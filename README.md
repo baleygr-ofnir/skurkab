@@ -97,6 +97,26 @@ Access    DestinationAddressPrefix    DestinationPortRange    Direction    Name 
 Deny      *                           80                      Inbound      Deny-HTTP-Inbound  110         Tcp         Succeeded            skurkab-rg       Internet               *
 ```
 
+## Network Architecture
+
+The architecture follows a Zero Trust model
+
+```text
+[Internet] 
+   │ (Only HTTPS / Port 443 allowed, HTTP / Port 80 denied)
+   ▼
+[Network Security Group (skurkab-nsg)]
+   │
+   ▼
+[Virtual Network (skurkab-vnet)]
+   │
+   ├─> [App Subnet (10.0.2.0/24)] ---> Azure App Service (API)
+   │     (Processes backend logic, receives inbound HTTPS, outbound via VNet Integration)
+   │
+   └─> [Data Subnet (10.0.1.0/24)] ---> (Prepared for database/storage)
+         (Fully isolated from the internet, accessible only from the App Subnet)
+```
+
 ## 7. Create app service plan
 
 ```bash
@@ -291,7 +311,39 @@ Without these configurations, the API relies solely on network-level security (V
 
 Proper identity configuration separates **Authentication** (Easy Auth verifying *who* the user is) from **Authorization** (App Roles determining *what* they are allowed to do with the data). Because these layers are missing, the endpoint restrictions (e.g., preventing a 'Praktikant' from executing a `DELETE` request) cannot be enforced or tested via OAuth tokens in Postman.
 
+Role Motivation (RBAC & App Roles)
+If Entra ID configuration had been permitted, identity and access management would have been divided as follows to strictly enforce the Principle of Least Privilege:
+
+Praktikant:
+
+App Role: Praktikant (Read-only access to basic data. Cannot see sensitive fields).
+
+Azure RBAC: Reader (Can view Azure resources in the portal but cannot modify infrastructure).
+
+Mellanchef:
+
+App Role: Mellanchef (Read access plus the ability to manage specific operational data, e.g., mission assignments).
+
+Azure RBAC: Reader (Operations management does not require infrastructure modification).
+
+Konsultchef:
+
+App Role: Konsultchef (Full access to operational and consultant data, including CRUD operations on consultants).
+
+Azure RBAC: Reader (Data management does not require infrastructure modification).
+
+Admin:
+
+App Role: Admin (Full system access, including application configuration).
+
+Azure RBAC: Contributor (Requires permissions to manage, update, and deploy resources within the specific Resource Group).
+
 ---
+### Note on Evidence / Postman Tests
+Screenshots demonstrating a `403 Forbidden` response and filtered data are intentionally omitted.
+These specific tests require generating an OAuth token for a user with specific App Roles assigned.
+As documented in the "Entra ID & RBAC Limitations" section, school account restrictions prevented the creation of the Entra ID users, App Registration, and App Roles. Without the ability to provision these identities, the API authorization rules cannot be effectively evaluated via Postman.
+Evidence of network isolation (NSG rules and VNet configuration) is provided below instead.
 ## Screenshots
 
 ![API Networking](screenshots/api-networking.png)
