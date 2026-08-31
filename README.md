@@ -187,3 +187,27 @@ az ad app federated-credential create --id $deploy_obj_id --parameters @credenti
 ------------------------------------------------------------------------------------------------------------------------------------  -------------------------------------------  ----------------  ----------------------------------------------
 https://graph.microsoft.com/v1.0/$metadata#applications('000000000-0000-0000-0000-000000000000')/federatedIdentityCredentials/$entity  https://token.actions.githubusercontent.com  GitHub-OIDC-Main  repo:baleygr-ofnir/skurkab:ref:refs/heads/main
 ```
+
+### Set GitHub secrets for the app service
+```bash
+gh secret set AZURE_CLIENT_ID --body $deploy_app_id --repo baleygr-ofnir/skurkab
+gh secret set AZURE_TENANT_ID --body $tenant_id --repo baleygr-ofnir/skurkab
+gh secret set AZURE_SUBSCRIPTION_ID --body $sub_id --repo baleygr-ofnir/skurkab
+```
+
+### Add permissions and login to workflow
+- Under build-and-deploy > runs-on block
+```yaml
+permissions:
+  id-token: write
+  contents: read
+```
+- Before Deploy to Azure Web App block
+```yaml
+- name: 'Azure Login'
+  uses: azure/login@v2
+  with:
+    client-id: ${{ secrets.AZURE_CLIENT_ID }}
+    tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+    subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+```
